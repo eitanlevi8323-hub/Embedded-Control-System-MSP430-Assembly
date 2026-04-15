@@ -1,0 +1,61 @@
+#include  "bsp.h"
+
+             NAME   MAIN
+             PUBLIC state,main, lcd_col, lcd_row, delay_ret_add,str, count, freq_str, hz_str, num
+             EXTERN SysConfig,delay, LCD1min, lcd_init, lcd_clr, TA0_ISR, 
+             EXTERN lcd_fk_start, lcd_fk_din, TimerConf1, PB2code
+;----------------------------------------------------------------------------------
+                ORG     0x0200
+             
+state           DW      0 ; state variable
+lcd_col         DB      0
+lcd_row         DB      0
+str             DW      '01:00'
+num             DW      0
+                EVEN
+freq_str        DW      'Measured freqen:'
+                EVEN
+count           DW      0
+hz_str          DW      '[Hz]'
+                EVEN                    ; move a location pointer to the first even address
+delay_ret_add   DW      0
+;-------------------------------------------------------------------------------------          
+             ;RSEG    CSTACK    ; shows to compiler where is the RAM populating limit
+                                ; can be ignored
+;-------------------------------------------------------------------------------------
+             ORG     CodeSegStart       ; Program Reset = Begins a CODE segment
+             
+main         mov.w   #StackTosStart,SP  ; Initialize stack pointer to the RAM end 
+             call    #SysConfig
+
+;---------------------- FSM_loop -------------------------------------
+FSM        cmp     #1, state
+           jz      state1
+           cmp     #2, state
+           jz      state2
+           cmp     #3, state
+           jz      state3
+state0     bis     #LPM0+GIE, SR                ; Sleep Mode of LPM0
+           jmp     FSM
+//=============================================================                    
+state1     call    #lcd_clr
+           call    #LCD1min
+           mov     #0, state
+           jmp     FSM
+                                         
+state2     call    #lcd_clr
+           call    #lcd_fk_start
+           call    #TimerConf1
+new_fk     bis     #LPM0+GIE, SR
+           bis     #LPM0+GIE, SR
+           call    #lcd_fk_din
+           cmp     #2, state
+           jnz     endst2
+           jmp     new_fk
+endst2     jmp     FSM
+
+state3     bis.b     #0x08, &P2SEL          ;P2.3 PWMOUTPUT
+           bis.b     #0x08, &P2DIR           ;P2.3 PWMOUTPUT
+           call      #PB2code
+           jmp     FSM
+           end	   

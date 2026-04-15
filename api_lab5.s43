@@ -1,0 +1,159 @@
+#include  "bsp.h"
+
+             MODULE API
+             PUBLIC LCD1min, lcd_fk_start, lcd_fk_din, APmult, DIV16, PB2code
+             EXTERN  TimerConf0, lcd_clr, print_ch, print_str, str, A1opentri, freq_str, hz_str
+             EXTERN  lcd_cmd, TimerConfPB2, state
+             RSEG   CODE
+;-------------------------------------------------------------
+ 
+;-------------------------------------------------------------
+APmult    pop.w  R13                ; R13 = the caller return address
+	  pop.w  R10                 ; R10=op2 value
+	  pop.w  R9                 ; R10=op1 value					
+	  mov    #16,R15            ; counter for 16 bits length
+          clr    R11                 ; clear res low
+          clr    R12                 ; clear res high
+          clr    R14                 ; aux. register for R10 to shift left of operand R10 into 32 bit 
+AP_L1     rrc    R9
+          jnc    AP_L2                 ; current bit equal zero
+          add    R10,R11              ; current bit equal one
+          adc    R12
+          add    R14,R12
+AP_L2     rla    R10
+          rlc    R14
+          dec    R15
+          jnz    AP_L1
+	  push.w R12		    ; push to stack the multiplication High word
+	  push.w R11		    ; push to stack the multiplication Low word
+	  push.w R13		    ; push back the caller return address
+          ret                    
+
+DIV16	  	pop.w R15			; R15 = the caller return address
+		pop.w R14			; R14 = y = Divisor
+		pop.w R13			; R13 = x = Dividend	                 
+                mov     #17,R10			; R10=DIV16_STEP_COUNTER=16+1
+                clr     R12                	; initialize the Quotient register
+                clr     R11		   	; initialize the shift-register {|R11|R13|} Upper Word                 
+DIVL3           rla     R12
+DIVL1           dec     R10
+                jz      DIVL2
+                rla     R13
+                rlc     R11
+                cmp     R14,R11
+                jlo     DIVL3
+                sub     R14,R11
+                setc
+                rlc     R12
+                jmp     DIVL1               
+DIVL2           push.w   R12		   	; push the Quotient into stack
+                push.w   R11		   	; push the Remainder into stack
+		push.w   R15			; push back the caller return address
+                ret		
+
+LCDtime      pop.w   R6
+             pop.w   R9
+             pop.w   R14
+             call  #lcd_clr
+             push  #'0'
+             call  #print_ch
+             push  #'0'
+             call  #print_ch
+             push  #':'
+             call  #print_ch
+             push  R14
+             call  #print_ch
+             push  R9
+             call  #print_ch
+             push  R6
+             ret
+             
+LCD1min    call    #TimerConf0
+           push.w  #str
+           call    #print_str
+           bis     #LPM0+GIE, SR
+           mov.w     #53, R7
+           mov.w     #57, R8
+fromthetop push.w  R7
+           push.w  R8
+           call    #LCDtime
+           cmp     #48, R8
+           jz	   onesloop
+           sub     #1, R8
+           jmp     endpsik
+onesloop   cmp     #48, R7
+           jz      endtime
+           sub     #1, R7
+           mov     #57, R8
+endpsik	   bis     #LPM0+GIE, SR
+           jmp     fromthetop
+endtime    ret
+             
+lcd_fk_start  call #lcd_clr
+              push.w #freq_str
+              call #print_str
+              push #0x00c0
+              call #lcd_cmd
+              mov  #6, R4
+movright      push #0x14
+              call #lcd_cmd
+              dec  R4
+              jnz movright
+              push.w #hz_str
+              call #print_str
+              ret
+              
+lcd_fk_din    pop  R5
+              pop  R7     ;t1
+              pop  R6     ;t0
+              push #0xc0
+              call #lcd_cmd
+              sub  R6, R7
+              push.w  #0xffff
+              push.w  R7
+              call #DIV16
+              pop.w   R7
+              pop.w   R7
+              mov     #4, R8
+mul           rla     R7      ; wanted number
+              dec     R8
+              jnz     mul
+div10         push.w  R7
+              push.w  #10
+              call  #DIV16
+              pop     R8      ;digit by digit
+              pop     R7
+              add     #0x30, R8
+              push.w  R8
+              call    #print_ch
+              cmp     #0,R7
+              jnz     div10
+              call    #A1opentri
+              ret
+
+PB2code       call    #TimerConfPB2
+teder         bis     #LPM0+GIE, SR
+              cmp     #3, state
+              jz      teder
+              bis     #MC_0, &TA1CTL
+              bis     #MC_0, &TA0CTL
+              ret
+              
+           
+              
+
+              
+              
+              
+              
+              
+              
+              
+
+             
+             
+
+             
+;-------------------------------------------------------------
+             ENDMOD    
+             END

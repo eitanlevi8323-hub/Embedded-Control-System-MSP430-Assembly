@@ -1,0 +1,122 @@
+#include  "bsp.h"
+
+            MODULE BSP
+            PUBLIC GPIOconfig,TimerConf0, TA0_ISR, A1opentri, A1closetri, TimerConf1
+            PUBLIC TimerConfPB2
+            EXTERN main,PBs_handler , lcd_init, count, state, APmult, DIV16, num
+            
+            RSEG   CODE                    
+;-----------------------------------------------------------------------------  
+;           GPIO congiguration
+;-----------------------------------------------------------------------------
+GPIOconfig    
+             mov.w   #WDTPW+WDTHOLD,&WDTCTL   ; hold watchdog timer
+             mov.w     #TASSEL_2 + MC_0 + TACLR, &TA0CTL; PushButtons + LCD Setup
+             mov.b     #0x00, &P1SEL                              ; P1 GPIO
+             bis.b     #0xFF, &P1DIR                              ; P1 output
+             mov.b     #0x10, &P2SEL                              ; P2 GPIO
+             bis.b     #0xE0, &P2DIR                              ; P2.7-P2.5 output
+             bic.b     #0x17, &P2DIR                               ; P2.1-P2.0 input
+             bis.b     #0x03, &P2IES                              ; pull up
+             bic.b     #0x04, &P2IES                              ; push down
+             call      #lcd_init
+             bis.b     #0x07, &P2IE                               ; P2.1-P2.0 interup enable
+             bic.b     #0x07, &P2IFG                              ; reset of interrupt flag
+             bis.w     #LPM0+GIE, SR
+             ret
+             
+             
+
+;------------------------------------------------------------------------------------- 
+;            Timers congiguration 
+;-------------------------------------------------------------------------------------
+
+TimerConf0
+            mov #TASSEL_2 + ID_3 + MC_3 + TACLR + TAIE, &TA0CTL
+            mov #0xFFFF, &TA0CCR0
+            ret
+            
+TimerConf1  mov #TASSEL_2 + ID_0 + MC_2 + TACLR, &TA1CTL
+            mov #CM_1 + CAP + SCS + CCIE + CCIS_0, &TA1CCTL2
+            ret
+TimerConfPB2  bis   #MC_0, &TA1CTL 
+              mov.w #700,&TACCR0 ; PWM Period
+              mov.w #OUTMOD_7,&TACCTL1 ; CCR1 reset/set
+              mov.w #350,&TACCR1
+              mov.w #TASSEL_2+MC_1,&TA1CTL 
+              bic   #CAP, &TA1CTL
+              mov #TASSEL_2 + ID_3 + MC_3 + TACLR + TAIE, &TA0CTL
+              mov #0x7FFF, &TA0CCR0
+              ret
+            
+            
+TA0_ISR   bic       #TAIFG + MC_1, &TA0CTL   ; srvice for timerA0
+          bic       #CPUOFF,0(SP)
+          cmp       #3, state
+          jnz       endta0
+          cmp       #10 , num
+          jnz       e
+          mov       #700, &TACCR0
+          mov       #350, &TACCR1
+          mov       #1, num
+          jmp       endta0
+e         push.w    num
+          push.w    #100
+          call      #APmult
+          pop       R7
+          pop       R7
+          add       #1500, R7
+          push.w    #0xffff
+          push.w    R7 
+          call      #DIV16
+          pop.w     R8
+          pop.w     R8
+          mov       #4, R9
+mul22     rla       R8
+          dec       R9
+          jnz       mul22
+          mov       R8, &TACCR0
+          rra       R8
+          mov       R8, &TACCR1
+          add       #1, num
+endta0    reti
+          
+TA1_ISR   pop   R4
+          push  TA1CCR2
+          bic   #CPUOFF,0(SP) 
+          add   #1, count
+          cmp   #2, count
+          jnz   endisr
+          bic   #CCIE, &TA1CCTL2
+          mov   #0, count
+endisr    push  R4
+          reti
+
+
+A1opentri 
+          bis  #CCIE, &TA1CCTL2
+          ret
+
+A1closetri 
+          bic  #CCIE, &TA1CCTL2
+          ret
+
+;-------------------------------------------------------------------------------------- 
+;            ADC congiguration 
+;--------------------------------------------------------------------------------------
+ADCconfig
+            nop ; write here ADC congiguration code
+
+            ret
+;---------------------------------------------------------------------------------------                  
+           COMMON  INTVEC
+//=============================================================          
+           ORG     RESET_VECTOR
+           DW      main
+           ORG     PORT2_VECTOR
+           DW      PBs_handler
+           ORG     TIMER0_A1_VECTOR
+           DW      TA0_ISR
+           ORG     TIMER1_A1_VECTOR
+           DW      TA1_ISR
+           END

@@ -1,0 +1,180 @@
+#include  "bsp.h"
+
+              MODULE HAL
+              PUBLIC SysConfig, PBs_handler,delay ,lcd_trig, lcd_init, lcd_clr, print_str, print_ch, lcd_cmd
+              EXTERN GPIOconfig, delay_ret_add, lcd_col, lcd_row, main
+              EXTERN state
+            
+              RSEG   CODE
+;--------------------------------------------------------------------
+;             System Configuration  
+;--------------------------------------------------------------------
+SysConfig     call #GPIOconfig
+              ret
+
+
+;----------------------------------------------------------------------- 
+;            PORT2 Interrupt Service Routine
+;-----------------------------------------------------------------------
+PBs_handler  push.w #debounceVal
+             call   #delayp    
+             bit.b  #PB0,PBsArrIntPend   ;check if PB0 is pushed
+             jnz    PB0sel 
+             bit.b  #PB1,PBsArrIntPend   ;check if PB1 is pushed
+             jnz    PB1sel
+             bit.b  #PB2,PBsArrIntPend   ;check if PB2 is pushed
+             jnz    PB2sel
+             reti                ; interrupt hapened from another source
+             
+PB0sel       mov    #1,state 
+             mov    #PB0,R4     ; which IntPend to clear
+             jmp    exitLPM0
+PB1sel       mov    #2,state
+             mov    #PB1,R4     ; which IntPend to clear
+             jmp    exitLPM0
+PB2sel       mov    #3,state    ; idle state
+             mov    #PB2,R4     ; which IntPend to clear
+
+
+exitLPM0     bic    #CPUOFF,0(SP)  ; Exit LMP0
+             bic.b  R4,PBsArrIntPend 
+             reti
+             
+
+;----------------------------------------------------------------------------------------------
+;            Polling based Delay function
+;----------------------------------------------------------------------------------------------                     
+delayp       pop   R4        ; save return address
+             pop   R5        ; get delay value
+             
+L            dec.w   R5      ;function body begin                 
+             jnz     L       ;function body end
+             
+             push.w  R4
+             ret
+             
+
+;----------------------------------------------------------------------------------------------
+lcd_trig  bis.b     #ENctrl, &P2OUT		; ENctrl=1      
+          nop
+          nop
+          bic.b     #ENctrl, &P2OUT		; ENctrl=0
+          ret
+
+;----------------------------------------------------------------------------------------------          
+lcd_cmd   pop      R10					; R10=return address
+          pop      R11                                  ; R11=command code
+          bic.b    #RSctrl, &P2OUT                      ; RS = '0'
+          push     #del5ms
+          call     #delay
+          mov.b    R11, &P1OUT
+          call     #lcd_trig
+          push.w   R10
+          ret         
+//=============================================================
+lcd_init  bic.b      #RWctrl + RSctrl + ENctrl, &P2OUT	; EN='0', RS='0', RW='0'
+          push       #del15ms
+          call       #delay
+          mov.b      #0x3F, &P1OUT
+          call       #lcd_trig
+          push       #del5ms
+          call       #delay
+          mov.b      #0x3F, &P1OUT
+          call       #lcd_trig
+          push 	     #del200us
+          call       #delay
+          mov.b      #0x3F, &P1OUT
+          call       #lcd_trig
+          push       #del5ms
+          call       #delay
+          mov.b      #0x3c, &P1OUT
+          call       #lcd_trig
+          push       #del5ms
+          call       #delay
+          mov.b      #0x0F, &P1OUT
+          call       #lcd_trig
+          push       #del5ms
+          call       #delay
+          mov.b      #0x01, &P1OUT
+          call       #lcd_trig
+          push       #del5ms
+          call       #delay
+          mov.b      #0x06, &P1OUT
+          call       #lcd_trig
+          push       #del5ms
+          call       #delay
+          mov.b      #0x80, &P1OUT
+          call       #lcd_trig
+          push       #del5ms
+          call       #delay
+          mov.b      #0x02, &P1OUT
+          call       #lcd_trig
+          ret       
+//=============================================================         
+lcd_clr   push     #0x01                        ; clear LCD
+          call     #lcd_cmd
+          mov.b    #0x00, lcd_row               ; set (lcd_row,lcd_col)=(0,0)
+          mov.b    #0x00, lcd_col               
+          ret
+//=============================================================        
+          
+print_str  pop	   R12					; R12=return address
+          pop	   R13					; str pointer
+loop	  mov.b    @R13+,R14
+          cmp      #0x00,R14
+          jz	   exit1					; if we get '\0'
+          bis.b    #RSctrl, &P2OUT                      ; RS = '1'
+          push     #del5ms
+          call     #delay
+          mov.b    R14, &P1OUT          
+          call     #lcd_trig
+          inc.b    lcd_col
+          cmp.b    #16, lcd_col
+          jlo      loop
+          xor.b    #0x01, lcd_row                       ; lcd_row=0 (first row),lcd_row=1 (second row)
+          mov.b    #0x00, lcd_col
+          tst.b    lcd_row
+          jnz      set_2nd 
+set_1st   push     #0x02                                ; set the lcd pointer to (lcd_row,lcd_col)=(0,0)
+          call     #lcd_cmd         
+          jmp	   loop
+set_2nd   push     #0xC0                                ; set the lcd pointer to (lcd_row,lcd_col)=(1,0)
+          call     #lcd_cmd         
+          jmp	   loop
+exit1     push.w   R12
+          ret
+          
+
+//=============================================================		  
+print_ch  pop	   R12					; R12=return address
+          pop	   R13					; char         
+          cmp.b    #16, lcd_col
+          jlo      print
+          xor.b    #0x01, lcd_row                       ; lcd_row=0 (first row),lcd_row=1 (second row)
+          mov.b    #0x00, lcd_col
+          tst.b    lcd_row
+          jnz      set1_2nd 
+set1_1st  push     #0x02                                ; set the lcd pointer to (lcd_row,lcd_col)=(0,0)
+          call     #lcd_cmd         
+          jmp	   print
+set1_2nd  push     #0xC0                                ; set the lcd pointer to (lcd_row,lcd_col)=(1,0)
+          call     #lcd_cmd                             
+print     bis.b    #RSctrl, &P2OUT                      ; RS = '1'
+          push     #del5ms
+          call     #delay
+          mov.b    R13, &P1OUT
+          call     #lcd_trig         
+          inc.b    lcd_col                                               
+          push.w   R12
+          ret
+//=============================================================               
+delay     pop	   delay_ret_add			; R9=return address
+          pop      &TA0CCR0
+          bis      #MC_1 + TAIE + TACLR, &TA0CTL
+          bis      #LPM0+GIE, SR
+          push.w   delay_ret_add       
+          ret
+
+;----------------------------------------------------------------------------------------------
+             ENDMOD
+             END
