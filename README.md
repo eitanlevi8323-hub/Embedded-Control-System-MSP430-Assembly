@@ -20,4 +20,4 @@ The system operates in a low-power mode (LPM0) by default and wakes up upon butt
 
 ## Tools
 - Assembly Language `.s43` (Ti MSP430 Architecture)
-- Developed for IAR Embedded Workbench / TI Code Composer Studio.
+- Developed for IAR Embedded Workbench.
